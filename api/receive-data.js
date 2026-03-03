@@ -1,10 +1,11 @@
 // 引入 Supabase 客户端（适配国内网络）
 import { createClient } from '@supabase/supabase-js';
-// 引入重试库，应对国内网络波动
+// 引入重试库，应对国内网络波动（如果安装失败可临时注释，先保证基础功能）
 import retry from 'p-retry';
 
-// 替换为你的 Supabase 项目信息（保持你自己的即可）
+// ========== 请确认以下2个参数是你自己的 Supabase 信息 ==========
 const SUPABASE_URL = "https://siijhdpercgucgqmtfhn.supabase.co";
+// 注意：这里建议用 Supabase 的 anon key（不是 publishable key），否则可能权限不足
 const SUPABASE_KEY = "sb_publishable__WzuvLboqbePaYQxEhN7Iw_b1I9";
 
 // 配置 Supabase 客户端（核心：适配国内网络）
@@ -23,7 +24,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
         headers: {
           ...options.headers,
           'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Node.js) Supabase-Client/2.0',
+          // 增加国内兼容的请求头
+          'Accept': 'application/json',
+          'Connection': 'keep-alive',
         },
       };
 
@@ -45,6 +48,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 // Vercel/Netlify 云函数主入口
 export default async function handler(req, res) {
+  // 解决跨域问题（国内访问必加，否则EMQX请求会被拦截）
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
   // 仅允许 POST 请求（EMQX 转发数据用POST）
   if (req.method !== 'POST') {
     return res.status(405).json({ 
@@ -54,7 +62,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const data = req.body;
+    // 处理空数据情况（避免req.body为undefined）
+    const data = req.body || {};
     // 严格校验必要字段（避免脏数据）
     if (!data.device_id || typeof data.device_id !== 'string' ||
         !data.temp || isNaN(Number(data.temp)) ||
@@ -73,7 +82,7 @@ export default async function handler(req, res) {
     // 封装数据库插入逻辑，增加重试机制
     const insertToSupabase = async () => {
       const { error } = await supabase
-        .from('sensor_data') // 你的 Supabase 表名
+        .from('sensor_data') // 确认你的 Supabase 表名是这个
         .insert([{
           device_id: data.device_id.trim(), // 去除空格
           temp: Number(data.temp),          // 确保数字格式
@@ -81,7 +90,8 @@ export default async function handler(req, res) {
           co: Number(data.co) || 0,         // 可选字段，默认0
           formaldehyde: Number(data.formaldehyde) || 0,
           co2: Number(data.co2) || 0,
-          aqi: Number(data.aqi) || 0
+          aqi: Number(data.aqi) || 0,
+          created_at: new Date().toISOString() // 新增时间字段，方便排查数据
         }]);
       
       if (error) throw new Error(`Supabase插入失败: ${error.message}`);
@@ -100,7 +110,7 @@ export default async function handler(req, res) {
     res.status(200).json({ 
       message: '数据存储成功', 
       device_id: data.device_id,
-      timestamp: new Date().toLocaleString('zh-CN') // 国内时间格式
+      timestamp: new Date().toLocaleString('zh-CN') // 国内时间格式，方便查看
     });
   } catch (error) {
     console.error('完整错误日志:', error);
