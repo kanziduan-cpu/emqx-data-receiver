@@ -1,0 +1,10 @@
+{
+  "name": "emqx-data-receiver",
+  "version": "1.0.0",
+  "type": "module",
+  "registry": "https://registry.npmmirror.com/",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.33.1",
+    "p-retry": "^6.2.0"
+  }
+}
